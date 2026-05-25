@@ -3,7 +3,7 @@ from .models import RawUpload, RawRecord, NormalizedActivity, ValidationIssue, E
 
 @admin.register(RawUpload)
 class RawUploadAdmin(admin.ModelAdmin):
-    list_display = ('filename', 'source_type', 'status', 'row_count', 'uploaded_at')
+    list_display = ('filename', 'source_type', 'status', 'total_rows', 'uploaded_at')
     list_filter = ('source_type', 'status')
     search_fields = ('filename', 'file_hash')
 
