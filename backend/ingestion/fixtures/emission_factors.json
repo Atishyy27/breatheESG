@@ -1,0 +1,54 @@
+[
+  {
+    "model": "ingestion.emissionfactor",
+    "pk": 1,
+    "fields": {
+      "activity_type": "fuel_diesel",
+      "unit": "L",
+      "factor_kg_co2e": "2.680000",
+      "scope": "SCOPE_1",
+      "source": "EPA 2025 GHG Hub",
+      "year": 2025,
+      "region": null
+    }
+  },
+  {
+    "model": "ingestion.emissionfactor",
+    "pk": 2,
+    "fields": {
+      "activity_type": "electricity_grid",
+      "unit": "kWh",
+      "factor_kg_co2e": "0.710000",
+      "scope": "SCOPE_2",
+      "source": "IEA 2025 Factors",
+      "year": 2025,
+      "region": "IN"
+    }
+  },
+  {
+    "model": "ingestion.emissionfactor",
+    "pk": 3,
+    "fields": {
+      "activity_type": "travel_flight",
+      "unit": "pkm",
+      "factor_kg_co2e": "0.133000",
+      "scope": "SCOPE_3",
+      "source": "DEFRA 2025",
+      "year": 2025,
+      "region": null
+    }
+  },
+  {
+    "model": "ingestion.emissionfactor",
+    "pk": 4,
+    "fields": {
+      "activity_type": "travel_hotel",
+      "unit": "room_nights",
+      "factor_kg_co2e": "15.500000",
+      "scope": "SCOPE_3",
+      "source": "DEFRA 2025",
+      "year": 2025,
+      "region": null
+    }
+  }
+]
