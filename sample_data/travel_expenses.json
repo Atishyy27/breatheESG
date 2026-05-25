@@ -1,0 +1,35 @@
+[
+  {
+    "report_id": "EXP-2026-M05-001",
+    "employee_id": "EMP_094",
+    "expense_type": "Air Travel",
+    "booking_class": "Business",
+    "origin": "BOM",
+    "destination": "LHR",
+    "transaction_amount": 182000,
+    "currency": "INR",
+    "transaction_date": "2026-05-08"
+  },
+  {
+    "report_id": "EXP-2026-M05-002",
+    "employee_id": "EMP_112",
+    "expense_type": "Air Travel",
+    "booking_class": "Economy",
+    "origin": "DEL",
+    "destination": "JFK",
+    "transaction_amount": 95000,
+    "currency": "INR",
+    "transaction_date": "2026-05-15"
+  },
+  {
+    "report_id": "EXP-2026-M05-003",
+    "employee_id": "EMP_221",
+    "expense_type": "Air Travel",
+    "booking_class": "Business",
+    "origin": "XXX",
+    "destination": "YYY",
+    "transaction_amount": 0,
+    "currency": "USD",
+    "transaction_date": "2026-05-20"
+  }
+]

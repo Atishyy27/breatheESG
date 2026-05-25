@@ -1,0 +1,4 @@
+meter_id,billing_start,billing_end,plant_ref,consumption_kwh,peak_demand_kw,total_amount,currency
+MTR-IND-091,2026-04-12,2026-05-11,IN01,14200.00,450.00,213750.00,INR
+MTR-GER-442,2026-05-01,2026-05-31,DE02,31000.00,820.00,9450.00,EUR
+MTR-USA-551,2026-05-01,2026-05-31,US03,-100.00,280.00,4500.00,USD
