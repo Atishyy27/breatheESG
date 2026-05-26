@@ -1,0 +1,1 @@
+"""Enterprise-grade dataset generator for ESG ingestion testing."""

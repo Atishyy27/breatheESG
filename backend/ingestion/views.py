@@ -11,13 +11,6 @@ from rest_framework import status
 from .models import RawUpload, RawRecord, NormalizedActivity
 from .processors import execute_ingestion_pipeline
 
-def home_placeholder_view(request):
-    """Temporary root route placeholder to resolve the 404 page error."""
-    return HttpResponse(
-        "BreatheESG Data Processor API is running. Route POST requests to /api/upload/.", 
-        content_type="text/plain"
-    )
-
 @api_view(['POST'])
 def upload_file_endpoint(request):
     """Accepts data uploads, extracts raw structures, and executes the processing pipeline."""
@@ -112,25 +105,30 @@ def upload_file_endpoint(request):
 
 @api_view(['GET'])
 def review_queue_list(request):
-    """Lists all active records requiring analyst verification (PENDING or SUSPICIOUS)."""
+    """Lists all active records requiring analyst verification (PENDING or SUSPICIOUS) with inline validation context."""
     activities = NormalizedActivity.objects.filter(
         review_status__in=['PENDING', 'SUSPICIOUS']
-    ).select_related('raw_record__upload').order_by('-created_at')
+    ).select_related('raw_record__upload').prefetch_related('raw_record__validation_issues').order_by('-created_at')
     
-    data = [{
-        "id": act.id,
-        "source_type": act.raw_record.upload.source_type,
-        "activity_type": act.activity_type,
-        "activity_date": str(act.activity_date),
-        "reporting_period": act.reporting_period,
-        "facility_code": act.facility_code,
-        "quantity": float(act.quantity) if act.quantity else None,
-        "unit": act.unit,
-        "co2e_kg": float(act.co2e_kg),
-        "review_status": act.review_status,
-        "anomaly_code": act.anomaly_code,
-        "anomaly_details": act.anomaly_details
-    } for act in activities]
+    data = []
+    for act in activities:
+        # Grab inline validation issues to display directly on the dashboard
+        inline_issues = [issue.message for issue in act.raw_record.validation_issues.all()[:2]]
+        
+        data.append({
+            "id": act.id,
+            "source_type": act.raw_record.upload.source_type,
+            "activity_type": act.activity_type,
+            "activity_date": str(act.activity_date),
+            "reporting_period": act.reporting_period,
+            "facility_code": act.facility_code,
+            "quantity": float(act.quantity) if act.quantity else None,
+            "unit": act.unit,
+            "co2e_kg": float(act.co2e_kg),
+            "review_status": act.review_status,
+            "anomaly_code": act.anomaly_code,
+            "inline_issues": inline_issues  # Added for Task 5
+        })
     
     return Response(data, status=status.HTTP_200_OK)
 
@@ -212,3 +210,70 @@ def reject_activity(request, pk):
     act.save(update_fields=['review_status', 'reviewed_at'])
     
     return Response({"message": "Transaction successfully archived from active queue view."}, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def upload_list(request):
+    """Feeds the main upload dashboard with processing histories."""
+    uploads = RawUpload.objects.all().order_by('-uploaded_at')
+    data = [{
+        "id": u.id,
+        "filename": u.filename,
+        "source_type": u.source_type,
+        "status": u.status,
+        "total_rows": u.total_rows,
+        "normalized_rows": u.normalized_rows,
+        "error_rows": u.error_rows,
+        "suspicious_rows": u.suspicious_rows,
+        "uploaded_at": u.uploaded_at.strftime('%b %d, %H:%M'),
+        "uploaded_by": u.uploaded_by_email
+    } for u in uploads]
+    return Response(data, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+def batch_approve_activity(request):
+    """Approves multiple clean rows instantly for operational velocity."""
+    activity_ids = request.data.get('activity_ids', [])
+    if not activity_ids:
+        return Response({"error": "No activities selected for batch approval."}, status=status.HTTP_400_BAD_REQUEST)
+        
+    activities = NormalizedActivity.objects.filter(id__in=activity_ids, review_status__in=['PENDING', 'SUSPICIOUS'])
+    
+    # Block batch approval if any selected rows have active errors
+    for act in activities:
+        if act.raw_record.validation_issues.filter(severity='ERROR').exists():
+            return Response({
+                "error": f"Batch halted. Row ID {act.id} contains active validation errors. Please review individually with a bypass note."
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+    activities.update(
+        review_status='APPROVED',
+        reviewed_at=timezone.now(),
+        reviewed_by_email=request.META.get('HTTP_X_ANALYST_EMAIL', 'analyst@breatheesg.com')
+    )
+    
+    return Response({"message": f"{len(activity_ids)} transactions successfully approved."}, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def export_approved_activities_csv(request):
+    """Generates a downloadable clean CSV ledger of all approved activities for compliance auditors."""
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="approved_emissions_report.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['Reporting Period', 'Activity Type', 'Scope', 'Quantity', 'Unit', 'CO2e (kg)', 'Verified By', 'Notes'])
+    
+    approved_records = NormalizedActivity.objects.filter(review_status='APPROVED').order_by('-activity_date')
+    for act in approved_records:
+        writer.writerow([
+            act.reporting_period,
+            act.activity_type,
+            act.scope,
+            act.quantity,
+            act.unit,
+            act.co2e_kg,
+            act.reviewed_by_email,
+            act.review_notes or ''
+        ])
+    return response
+
+    
