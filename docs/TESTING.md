@@ -1,18 +1,40 @@
-# Operational Manual Verification Matrix
+# Manual Test Matrix
 
-This suite profiles end-to-end processing execution matrices across structural and semantic edge cases.
+This document provides a step-by-step verification protocol for testing the ingestion pipeline, data transformations, and validation checks using the sample data files in `/sample_data`.
 
-| Core Target Vector | Processing Scenario | Input Exception Parameter | Expected Pipeline Behaviour | Verification Metric |
-| :--- | :--- | :--- | :--- | :--- |
-| **SAP Ingestion** | Missing Quantity | `MENGE` parameter field left blank | Emits Validation `ERROR` log block; halts processing before row normalization | `RawRecord.has_error == True` |
-| **SAP Ingestion** | Stationary Fuel Classification | `MATNR` contains keyword `"FUEL_DIESEL"` | Routes allocation targets directly to Scope 1 (Stationary Combustion) | `NormalizedActivity.scope == "SCOPE_1"` |
-| **SAP Ingestion** | Procurement Classification | `MATNR` contains keyword `"STEEL_BEAMS"` | Routes allocation targets directly to Scope 3 (Purchased Goods) | `NormalizedActivity.scope == "SCOPE_3"` |
-| **SAP Ingestion** | German Format Dates | `BUDAT` formatted as `"10.05.2026"` | Parses string into structural system date index cleanly (`2026-05-10`) | `NormalizedActivity.reporting_period == "2026-05"` |
-| **SAP Ingestion** | Non-Standard Weight Multipliers | `MEINS` volume unit marked as `"GAL"` | Normalizes row volume targets into standard Liters using a 3.78541 multiplier | `NormalizedActivity.unit == "L"` |
-| **Utility Ingestion**| Temporal Month Cross Splitting | `billing_start: 2026-04-12`, `billing_end: 2026-05-11` | Day-proportionately splits consumption totals across individual month activity rows | 2 separate activities generated pointing back to 1 `RawRecord` |
-| **Utility Ingestion**| Non-Emission Metadata Preservation | Inbound bill registers `peak_demand_kw: 450.00` | Excludes infrastructure demand from footprint calculations, preserving it inside JSON fields | `source_metadata` retains peak value |
-| **Utility Ingestion**| Sub-Zero Consumption Failures | `consumption_kwh` registered as `-100.00` | Logs Validation `ERROR` condition block; prevents row normalization | Record flagged on upload summary metrics |
-| **Travel Ingestion** | Geospatial Coordinate Derivation | JSON payload registers `origin: "BOM"`, `destination: "LHR"` | Runs an internal Haversine calculation to determine great-circle distance (~7200 km) | `NormalizedActivity.quantity` populated with km |
-| **Travel Ingestion** | Seating Class Multiplier | `booking_class` designated as `"Business"` | Applies a 2.5x emissions scaling coefficient to passenger distance totals | `co2e_kg` reflects premium multiplier |
-| **Travel Ingestion** | Unmapped Airport Exceptions | JSON payload tracks untracked code `"XXX"` | Normalizes row with 0 km and shifts the verification state to `SUSPICIOUS` | `anomaly_code == "MISSING_FACILITY"` |
-| **Compliance Review**| Manual Analyst Overrides | Try approving row tracking active validation error | Blocks operation with a `400 Bad Request` unless override bypass check is passed with notes | API state transition rejected |
+---
+
+## 1. SAP Fuel & Procurement Validation Matrix
+Verify these conditions by uploading `sap_fuel_procurement.csv` or inspecting rows via Django Admin.
+
+| Scenario | Input Data Trigger | Pipeline Processing | Expected Database State |
+| :--- | :--- | :--- | :--- |
+| **Missing Quantity** | `MENGE` is empty or blank | Catches missing value; logs a blocking validation error | `RawRecord.has_error == True`<br>`ValidationIssue.severity == 'ERROR'`<br>*No NormalizedActivity is created.* |
+| **Direct Fuel Routing** | `MATNR` contains `"FUEL_DIESEL"` | Identifies combustion fuel; routes to Scope 1 Stationary Combustion | `NormalizedActivity.scope == 'SCOPE_1'`<br>`NormalizedActivity.activity_type == 'fuel_diesel'` |
+| **Procurement Routing** | `MATNR` contains `"STEEL_BEAMS"` | Identifies value chain material; routes to Scope 3 Category 1 | `NormalizedActivity.scope == 'SCOPE_3'`<br>`NormalizedActivity.activity_type == 'material_procurement'` |
+| **German Date Parsing** | `BUDAT` is `"10.05.2026"` | Correctly parses European dot notation into standard date format | `NormalizedActivity.activity_date == 2026-05-10`<br>`NormalizedActivity.reporting_period == '2026-05'` |
+| **Unit Normalization** | `MEINS` is `"GAL"` | Normalizes gallons into liters using the 3.78541 conversion factor | `NormalizedActivity.unit == 'L'`<br>`NormalizedActivity.quantity == input_menge * 3.78541` |
+
+---
+
+## 2. Utility Electricity Validation Matrix
+Verify these conditions by uploading `utility_electricity_monthly.csv` or testing via the API.
+
+| Scenario | Input Data Trigger | Pipeline Processing | Expected Database State |
+| :--- | :--- | :--- | :--- |
+| **Month Boundary Split** | `billing_start: 2026-04-12`<br>`billing_end: 2026-05-11` | Calculates day weights across the 30-day cycle. Generates two distinct rows prorated by days | Creates **2 separate** `NormalizedActivity` records pointing to the same `RawRecord`:<br>- Row 1: `reporting_period == '2026-04'` (19 days)<br>- Row 2: `reporting_period == '2026-05'` (11 days) |
+| **Negative kWh Entry** | `consumption_kwh` is `< 0` (e.g., `-100`) | Identifies negative entry; logs a blocking validation error | `RawRecord.has_error == True`<br>`ValidationIssue.issue_type == 'NEGATIVE_CONSUMPTION'`<br>*No NormalizedActivity is created.* |
+| **Unknown Plant Code** | `plant_ref` is empty or missing | Logs a non-blocking validation warning. Still generates activity row | `ValidationIssue.severity == 'WARNING'`<br>`NormalizedActivity.facility_code == None` |
+| **Peak Demand Isolation** | Row includes `peak_demand_kw` | Stores demand metrics as structural metadata; excludes them from emissions calculations | `NormalizedActivity.source_metadata` contains `{"peak_demand_kw": "450.00"}`<br>*Emissions calculation uses consumption_kwh only.* |
+
+---
+
+## 3. Corporate Travel Validation Matrix
+Verify these conditions by uploading `travel_expenses.json` or running target route lookups.
+
+| Scenario | Input Data Trigger | Pipeline Processing | Expected Database State |
+| :--- | :--- | :--- | :--- |
+| **Distance Derivation** | `origin: "BOM"`, `destination: "LHR"` | Executes great-circle Haversine formula mapping core airport coordinates | `NormalizedActivity.unit == 'pkm'`<br>`NormalizedActivity.quantity == 7192.00` (Approximate km) |
+| **Premium Class Scaling**| `booking_class` is `"Business"` | Snapshot lookup evaluates base emissions factor, then applies a 2.5x premium seating multiplier | `NormalizedActivity.co2e_kg == distance * factor * 2.5` |
+| **Unmapped Airport Code**| `origin` or `destination` is `"XXX"` | Fails to resolve coordinates; flags row as suspicious instead of crashing the pipeline | `NormalizedActivity.review_status == 'SUSPICIOUS'`<br>`NormalizedActivity.anomaly_code == 'MISSING_FACILITY'`<br>`NormalizedActivity.quantity == 0.00` |
+| **Alternative Travel Types**| `expense_type` matches hotel stay | (Future Expansion / Phase 2) Identifies non-flight travel types and routes to separate target calculation factors | Evaluated via dedicated hotel reference tables using `unit: room_nights` |
