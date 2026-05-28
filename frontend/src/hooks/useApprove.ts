@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { apiClient } from '@/lib/api'
+import { toast } from 'sonner'
 
 interface ApprovePayload {
   id: number
@@ -12,16 +13,21 @@ export function useApprove() {
 
   return useMutation({
     mutationFn: async ({ id, bypass_validation, review_notes }: ApprovePayload) => {
-      const response = await api.post(`/review/${id}/approve/`, {
+      const response = await apiClient.post(`/review/${id}/approve/`, {
         bypass_validation,
-        review_notes
+        review_notes,
       })
       return response.data
     },
     onSuccess: () => {
-      // Invalidate states synchronously to drive instant dashboard layout updates
+      toast.success('Record approved and locked for audit')
       queryClient.invalidateQueries({ queryKey: ['review-queue'] })
-      queryClient.invalidateQueries({ queryKey: ['upload-history'] })
-    }
+      queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] })
+    },
+    onError: (err: any) => {
+      toast.error('Approval failed', {
+        description: err.response?.data?.error || 'Unknown error occurred',
+      })
+    },
   })
 }

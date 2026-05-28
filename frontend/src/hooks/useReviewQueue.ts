@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { api } from '@/lib/api'
+import { apiClient } from '@/lib/api'
 
 export interface QueueItem {
   id: number
@@ -13,6 +13,7 @@ export interface QueueItem {
   co2e_kg: number
   review_status: 'PENDING' | 'SUSPICIOUS' | 'APPROVED'
   anomaly_code: string | null
+  anomaly_details: string | null
   inline_issues: string[]
 }
 
@@ -20,9 +21,9 @@ export function useReviewQueue() {
   return useQuery<QueueItem[]>({
     queryKey: ['review-queue'],
     queryFn: async () => {
-      const response = await api.get('/review/')
+      const response = await apiClient.get('/review/')
       return response.data
     },
-    refetchInterval: 15000 // Inbound polling background loops
+    refetchInterval: 15000,
   })
 }

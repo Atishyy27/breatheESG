@@ -4,10 +4,14 @@ import urllib.parse
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Security & Environment Fallbacks
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure--*px@z-y1mxj$z3*!wgt-buqg+do0798*hjsxeg22*=wo4x%ui')
+SECRET_KEY = os.environ.get(
+    'SECRET_KEY',
+    'django-insecure--*px@z-y1mxj$z3*!wgt-buqg+do0798*hjsxeg22*=wo4x%ui'
+)
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '127.0.0.1,localhost,.railway.app').split(',')
+ALLOWED_HOSTS = os.environ.get(
+    'ALLOWED_HOSTS', '127.0.0.1,localhost,.railway.app,.up.railway.app'
+).split(',')
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -17,12 +21,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders',
     'ingestion',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',        # Must be before CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -31,13 +37,19 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# CORS — allow Vite dev server; in production frontend is served by Django itself
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+]
+CORS_ALLOW_ALL_ORIGINS = False
+
 ROOT_URLCONF = 'breathe.urls'
 
-# Path pointing to your production frontend bundle
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR.parent / 'frontend' / 'dist'], 
+        'DIRS': [BASE_DIR.parent / 'frontend' / 'dist'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -52,7 +64,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'breathe.wsgi.application'
 
-# Database Engine (Unified)
 DATABASE_URL = os.environ.get('DATABASE_URL')
 if DATABASE_URL:
     url = urllib.parse.urlparse(DATABASE_URL)
@@ -74,19 +85,21 @@ else:
         }
     }
 
-# Static Assets (Production Ready)
-# Static files configuration (Preserved for unified single-container execution)
-STATIC_URL = '/static/'  # Enforce leading and trailing slashes for path matching
-
-# Where collectstatic gathers assets for production compression
+# Static files
+STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Point directly to the React production build root directory
-STATICFILES_DIRS = [
-    BASE_DIR.parent / 'frontend' / 'dist',
-]
+# Only add STATICFILES_DIRS if the dist folder actually exists
+_FRONTEND_DIST = BASE_DIR.parent / 'frontend' / 'dist'
+if _FRONTEND_DIST.exists():
+    STATICFILES_DIRS = [_FRONTEND_DIST]
+else:
+    STATICFILES_DIRS = []
 
-# Enable WhiteNoise compression and caching for fast asset delivery
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': ['rest_framework.renderers.JSONRenderer'],
+}
