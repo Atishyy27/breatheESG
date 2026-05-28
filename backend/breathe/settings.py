@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 import urllib.parse
+from corsheaders.defaults import default_headers
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -38,12 +39,18 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# CORS — allow Vite dev server; in production frontend is served by Django itself
+
 CORS_ALLOWED_ORIGINS = [
     'http://localhost:5173',
     'http://127.0.0.1:5173',
+    'https://breatheesg-gg71.onrender.com',
 ]
+
 CORS_ALLOW_ALL_ORIGINS = True
+
+CORS_ALLOW_HEADERS = list(default_headers) + [
+    'x-analyst-email',
+]
 
 ROOT_URLCONF = 'breathe.urls'
 
