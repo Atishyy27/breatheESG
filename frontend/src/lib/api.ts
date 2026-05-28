@@ -2,7 +2,11 @@ import axios from 'axios'
 import type { Activity, DashboardMetrics, UploadSummary } from '@/types'
 
 export const apiClient = axios.create({
-  baseURL: '/api',
+  baseURL:
+    import.meta.env.VITE_API_BASE_URL
+      ? `${import.meta.env.VITE_API_BASE_URL}/api`
+      : '/api',
+
   headers: {
     'Content-Type': 'application/json',
     'X-Analyst-Email': 'analyst@breatheesg.com',
