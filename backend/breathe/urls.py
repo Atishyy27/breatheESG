@@ -11,7 +11,9 @@ from ingestion.views import (
     batch_approve_activity,
     export_approved_activities_csv,
     dashboard_stats,
+    dashboard_trends,
     health_check,
+    generate_dataset,
 )
 
 urlpatterns = [
@@ -33,6 +35,10 @@ urlpatterns = [
 
     # Dashboard
     path('api/dashboard/', dashboard_stats),
+    path('api/dashboard/trends/', dashboard_trends, name='dashboard-trends'),
+
+    # Dataset
+    path('api/generate/', generate_dataset, name='generate-dataset'),
 
     # Health
     path('', health_check),

@@ -2,11 +2,13 @@ import csv
 import io
 import json
 import hashlib
+import subprocess
 from datetime import timedelta
 
 from django.http import HttpResponse
 from django.utils import timezone
-from django.db.models import Sum
+from django.db.models import Sum, Count, Q
+from django.db.models.functions import TruncMonth
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -329,6 +331,128 @@ def export_approved_activities_csv(request):
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 
+
+
+@api_view(['GET'])
+def dashboard_trends(request):
+    """
+    Returns time-series, FY comparison, and distribution data
+    for dashboard charts. Uses existing NormalizedActivity data.
+    """
+    # ── Monthly breakdown by scope ────────────────────────────────
+    # Include ALL records (not just approved) for richer trend signal
+    scope_rows = (
+        NormalizedActivity.objects
+        .values('reporting_period', 'scope')
+        .annotate(total=Sum('co2e_kg'))
+        .order_by('reporting_period')
+    )
+
+    months_map: dict = {}
+    for row in scope_rows:
+        p = row['reporting_period']
+        if not p or len(p) != 7:
+            continue
+        if p not in months_map:
+            months_map[p] = {
+                'period': p,
+                'SCOPE_1': 0.0,
+                'SCOPE_2': 0.0,
+                'SCOPE_3': 0.0,
+                'total': 0.0,
+            }
+        months_map[p][row['scope']] = round(float(row['total'] or 0), 2)
+        months_map[p]['total'] = round(
+            months_map[p]['SCOPE_1'] + months_map[p]['SCOPE_2'] + months_map[p]['SCOPE_3'], 2
+        )
+
+    sorted_months = sorted(months_map.values(), key=lambda x: x['period'])
+    recent_months = sorted_months[-13:]  # Last 13 months max
+
+    # ── Real MoM change (replaces hardcoded 8.2%) ────────────────
+    mom_change = None
+    if len(sorted_months) >= 2:
+        curr = sorted_months[-1]['total']
+        prev = sorted_months[-2]['total']
+        if prev > 0:
+            mom_change = round((curr - prev) / prev * 100, 1)
+
+    # ── FY comparison (calendar year grouping) ───────────────────
+    fy_rows = (
+        NormalizedActivity.objects
+        .values('reporting_period', 'scope')
+        .annotate(total=Sum('co2e_kg'))
+    )
+    fy_map: dict = {}
+    for row in fy_rows:
+        p = row['reporting_period']
+        if not p or len(p) != 7:
+            continue
+        fy = f"FY{p[:4]}"
+        if fy not in fy_map:
+            fy_map[fy] = {'fy': fy, 'SCOPE_1': 0.0, 'SCOPE_2': 0.0, 'SCOPE_3': 0.0, 'total': 0.0}
+        fy_map[fy][row['scope']] = round(fy_map[fy].get(row['scope'], 0.0) + float(row['total'] or 0), 2)
+        fy_map[fy]['total'] = round(
+            fy_map[fy]['SCOPE_1'] + fy_map[fy]['SCOPE_2'] + fy_map[fy]['SCOPE_3'], 2
+        )
+    fy_list = sorted(fy_map.values(), key=lambda x: x['fy'])
+
+    # ── Activity type breakdown ────────────────────────────────────
+    act_rows = list(
+        NormalizedActivity.objects
+        .values('activity_type')
+        .annotate(total=Sum('co2e_kg'), count=Count('id'))
+        .order_by('-total')[:8]
+    )
+    for r in act_rows:
+        r['total'] = round(float(r['total'] or 0), 2)
+
+    # ── Anomaly distribution ────────────────────────────────────
+    anomaly_rows = list(
+        NormalizedActivity.objects
+        .filter(anomaly_code__isnull=False)
+        .exclude(anomaly_code='')
+        .values('anomaly_code')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+
+    # ── Facility monthly trend (top 3 facilities over time) ───────
+    top_facility_codes = [
+        r['facility_code'] for r in
+        NormalizedActivity.objects
+        .exclude(facility_code__isnull=True)
+        .exclude(facility_code='')
+        .values('facility_code')
+        .annotate(total=Sum('co2e_kg'))
+        .order_by('-total')[:3]
+    ]
+
+    facility_monthly = {}
+    fac_rows = (
+        NormalizedActivity.objects
+        .filter(facility_code__in=top_facility_codes)
+        .values('reporting_period', 'facility_code')
+        .annotate(total=Sum('co2e_kg'))
+        .order_by('reporting_period')
+    )
+    for row in fac_rows:
+        p = row['reporting_period']
+        if p not in facility_monthly:
+            facility_monthly[p] = {'period': p}
+        facility_monthly[p][row['facility_code']] = round(float(row['total'] or 0), 2)
+
+    facility_monthly_list = sorted(facility_monthly.values(), key=lambda x: x['period'])
+
+    return Response({
+        'monthly': recent_months,
+        'fy_comparison': fy_list,
+        'mom_change': mom_change,
+        'activity_breakdown': act_rows,
+        'anomaly_distribution': anomaly_rows,
+        'facility_monthly': facility_monthly_list[-12:],
+        'top_facility_codes': top_facility_codes,
+    })
 @api_view(['GET'])
 def dashboard_stats(request):
     thirty_days_ago = timezone.now() - timedelta(days=30)
@@ -397,3 +521,208 @@ def dashboard_stats(request):
             'approved': approved.count(),
         },
     })
+
+@api_view(['GET'])
+def dashboard_trends(request):
+    """
+    Returns time-series, FY comparison, and distribution data
+    for dashboard charts. Uses existing NormalizedActivity data.
+    """
+    # ── Monthly breakdown by scope ────────────────────────────────
+    # Include ALL records (not just approved) for richer trend signal
+    scope_rows = (
+        NormalizedActivity.objects
+        .values('reporting_period', 'scope')
+        .annotate(total=Sum('co2e_kg'))
+        .order_by('reporting_period')
+    )
+
+    months_map: dict = {}
+    for row in scope_rows:
+        p = row['reporting_period']
+        if not p or len(p) != 7:
+            continue
+        if p not in months_map:
+            months_map[p] = {
+                'period': p,
+                'SCOPE_1': 0.0,
+                'SCOPE_2': 0.0,
+                'SCOPE_3': 0.0,
+                'total': 0.0,
+            }
+        months_map[p][row['scope']] = round(float(row['total'] or 0), 2)
+        months_map[p]['total'] = round(
+            months_map[p]['SCOPE_1'] + months_map[p]['SCOPE_2'] + months_map[p]['SCOPE_3'], 2
+        )
+
+    sorted_months = sorted(months_map.values(), key=lambda x: x['period'])
+    recent_months = sorted_months[-13:]  # Last 13 months max
+
+    # ── Real MoM change (replaces hardcoded 8.2%) ────────────────
+    mom_change = None
+    if len(sorted_months) >= 2:
+        curr = sorted_months[-1]['total']
+        prev = sorted_months[-2]['total']
+        if prev > 0:
+            mom_change = round((curr - prev) / prev * 100, 1)
+
+    # ── FY comparison (calendar year grouping) ───────────────────
+    fy_rows = (
+        NormalizedActivity.objects
+        .values('reporting_period', 'scope')
+        .annotate(total=Sum('co2e_kg'))
+    )
+    fy_map: dict = {}
+    for row in fy_rows:
+        p = row['reporting_period']
+        if not p or len(p) != 7:
+            continue
+        fy = f"FY{p[:4]}"
+        if fy not in fy_map:
+            fy_map[fy] = {'fy': fy, 'SCOPE_1': 0.0, 'SCOPE_2': 0.0, 'SCOPE_3': 0.0, 'total': 0.0}
+        fy_map[fy][row['scope']] = round(fy_map[fy].get(row['scope'], 0.0) + float(row['total'] or 0), 2)
+        fy_map[fy]['total'] = round(
+            fy_map[fy]['SCOPE_1'] + fy_map[fy]['SCOPE_2'] + fy_map[fy]['SCOPE_3'], 2
+        )
+    fy_list = sorted(fy_map.values(), key=lambda x: x['fy'])
+
+    # ── Activity type breakdown ────────────────────────────────────
+    act_rows = list(
+        NormalizedActivity.objects
+        .values('activity_type')
+        .annotate(total=Sum('co2e_kg'), count=Count('id'))
+        .order_by('-total')[:8]
+    )
+    for r in act_rows:
+        r['total'] = round(float(r['total'] or 0), 2)
+
+    # ── Anomaly distribution ────────────────────────────────────
+    anomaly_rows = list(
+        NormalizedActivity.objects
+        .filter(anomaly_code__isnull=False)
+        .exclude(anomaly_code='')
+        .values('anomaly_code')
+        .annotate(count=Count('id'))
+        .order_by('-count')
+    )
+
+    # ── Facility monthly trend (top 3 facilities over time) ───────
+    top_facility_codes = [
+        r['facility_code'] for r in
+        NormalizedActivity.objects
+        .exclude(facility_code__isnull=True)
+        .exclude(facility_code='')
+        .values('facility_code')
+        .annotate(total=Sum('co2e_kg'))
+        .order_by('-total')[:3]
+    ]
+
+    facility_monthly = {}
+    fac_rows = (
+        NormalizedActivity.objects
+        .filter(facility_code__in=top_facility_codes)
+        .values('reporting_period', 'facility_code')
+        .annotate(total=Sum('co2e_kg'))
+        .order_by('reporting_period')
+    )
+    for row in fac_rows:
+        p = row['reporting_period']
+        if p not in facility_monthly:
+            facility_monthly[p] = {'period': p}
+        facility_monthly[p][row['facility_code']] = round(float(row['total'] or 0), 2)
+
+    facility_monthly_list = sorted(facility_monthly.values(), key=lambda x: x['period'])
+
+    return Response({
+        'monthly': recent_months,
+        'fy_comparison': fy_list,
+        'mom_change': mom_change,
+        'activity_breakdown': act_rows,
+        'anomaly_distribution': anomaly_rows,
+        'facility_monthly': facility_monthly_list[-12:],
+        'top_facility_codes': top_facility_codes,
+    })
+
+@api_view(['POST'])
+def generate_dataset(request):
+    """
+    Wraps existing generator scripts to produce downloadable datasets.
+    Parameters: source_type, row_count, anomaly_rate, facilities
+    """
+    source_type = request.data.get('source_type', 'SAP')
+    row_count = min(int(request.data.get('row_count', 100)), 2000)  # Cap at 2k
+    anomaly_rate = max(0, min(float(request.data.get('anomaly_rate', 0.05)), 0.5))
+    preset = request.data.get('preset', 'custom')
+
+    # Map source type to generator script path
+    GENERATOR_MAP = {
+        'SAP': 'scripts/generators/sap/generate_procurement.py',
+        'SAP_FUEL': 'scripts/generators/sap/generate_fuel_procurement.py',
+        'UTILITY_BILL': 'scripts/generators/utility/generate_monthly_bills.py',
+        'UTILITY_METER': 'scripts/generators/utility/generate_smart_meter.py',
+        'TRAVEL': 'scripts/generators/travel/generate_concur_exports.py',
+    }
+
+    script_path = GENERATOR_MAP.get(source_type)
+    if not script_path:
+        return Response({'error': f'Unknown source type: {source_type}'}, status=400)
+
+    backend_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    full_script = os.path.join(backend_root, script_path)
+
+    if not os.path.exists(full_script):
+        # Graceful fallback: return sample data
+        return Response({'error': f'Generator script not found: {script_path}'}, status=404)
+
+    # Run generator with parameters (scripts need to accept CLI args)
+    try:
+        with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as tmp:
+            tmp_path = tmp.name
+
+        result = subprocess.run(
+            ['python', full_script, '--rows', str(row_count), '--anomaly-rate', str(anomaly_rate), '--output', tmp_path],
+            capture_output=True, text=True, timeout=30,
+            cwd=backend_root,
+        )
+
+        if result.returncode != 0:
+            return Response({'error': result.stderr[:500]}, status=500)
+
+        if os.path.exists(tmp_path):
+            response = FileResponse(
+                open(tmp_path, 'rb'),
+                content_type='text/csv',
+                as_attachment=True,
+                filename=f'{source_type.lower()}_{row_count}rows_{int(anomaly_rate * 100)}pct_anomalies.csv',
+            )
+            return response
+        return Response({'error': 'Generator produced no output'}, status=500)
+
+    except subprocess.TimeoutExpired:
+        return Response({'error': 'Generation timed out'}, status=500)
+    except Exception as e:
+        return Response({'error': str(e)[:500]}, status=500)
+
+def _parse_file_to_rows(file_content: bytes, source_type: str) -> list:
+    if source_type == 'TRAVEL':
+        data = json.loads(file_content.decode('utf-8'))
+        return data if isinstance(data, list) else [data]
+
+    # Detect delimiter — SAP files use pipe, utility uses comma
+    text = file_content.decode('utf-8-sig')
+    sample = text[:500]
+    delimiter = '|' if sample.count('|') > sample.count(',') else ','
+
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
+    rows = []
+    for row in reader:
+        cleaned = {}
+        for k, v in row.items():
+            if not k:
+                continue
+            key = k.strip()
+            # Strip Excel formula artifacts: ="01.01.2025" → 01.01.2025
+            val = v.strip().lstrip('=').strip('"').strip()
+            cleaned[key] = val
+        rows.append(cleaned)
+    return rows

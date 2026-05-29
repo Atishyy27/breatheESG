@@ -7,53 +7,46 @@ from .models import RawRecord, NormalizedActivity, EmissionFactor, ValidationIss
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 
+# def parse_date(date_str):
+#     if not date_str:
+#         return None
+#     s=str(date_str).strip()
+
+
+#     # Excel weirdness:
+#     s=s.replace('"="','')
+#     s=s.replace('"','')
+#     s=s.strip("=")
+#     formats=[
+#         '%Y-%m-%d',
+#         '%d.%m.%Y',
+#         '%Y/%m/%d',
+#         '%m/%d/%Y',
+#         '%d/%m/%Y',
+#         '%d%m%Y',
+#         '%Y%m%d'
+#     ]
+#     for fmt in formats:
+#         try:
+#             return datetime.strptime(
+#                 s,
+#                 fmt
+#             ).date()
+#         except ValueError:
+#             pass
+#     return None
+
 def parse_date(date_str):
+    s = str(date_str).strip()
+    # Remove Excel formula wrapping: ="01.01.2025" or ="01012025"
+    s = s.lstrip('=').strip('"').strip()
 
-    if not date_str:
-
-        return None
-
-    s=str(date_str).strip()
-
-    # Excel weirdness:
-
-    s=s.replace('"="','')
-    s=s.replace('"','')
-    s=s.strip("=")
-
-    formats=[
-
-        '%Y-%m-%d',
-
-        '%d.%m.%Y',
-
-        '%Y/%m/%d',
-
-        '%m/%d/%Y',
-
-        '%d/%m/%Y',
-
-        '%d%m%Y',
-
-        '%Y%m%d'
-
-    ]
-
-    for fmt in formats:
-
+    for fmt in ('%Y-%m-%d', '%d.%m.%Y', '%d%m%Y', '%Y/%m/%d', '%m/%d/%Y'):
         try:
-
-            return datetime.strptime(
-                s,
-                fmt
-            ).date()
-
+            return datetime.strptime(s, fmt).date()
         except ValueError:
-
-            pass
-
-    return None
-
+            continue
+    raise ValueError(f"Unrecognized date format: '{date_str}'")
 
 def parse_decimal(value, default=None):
     """Safely convert value to Decimal."""

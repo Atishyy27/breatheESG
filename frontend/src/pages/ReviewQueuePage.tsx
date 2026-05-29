@@ -172,3 +172,21 @@ export function ReviewQueuePage() {
     </div>
   );
 }
+
+
+// GIVE THIS WITH THIS
+// const { roleInfo } = useRole()
+
+// // Approve Selected button:
+// {roleInfo.canApprove && selected.length > 0 && (
+//   <button onClick={handleBatch}>Approve Selected ({selected.length})</button>
+// )}
+
+// // In DetailModal, gate the approve button:
+// {roleInfo.canApprove ? (
+//   <button onClick={() => approve(...)}>Approve Record</button>
+// ) : (
+//   <div className="text-xs text-muted-foreground text-center py-2">
+//     {roleInfo.id === 'AUDITOR' ? '🔒 Auditors cannot approve records' : 'Insufficient permissions'}
+//   </div>
+// )}

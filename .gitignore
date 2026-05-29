@@ -1,0 +1,3 @@
+ backend/breathe/__pycache__/
+db.sqlite3
+frontend/node_modules/
