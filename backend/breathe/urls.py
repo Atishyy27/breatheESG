@@ -9,11 +9,12 @@ from ingestion.views import (
     approve_activity,
     reject_activity,
     batch_approve_activity,
-    export_approved_activities_csv,
     dashboard_stats,
     dashboard_trends,
     health_check,
     generate_dataset,
+    export_approved_activities_csv,
+    audit_ledger
 )
 
 urlpatterns = [
@@ -39,6 +40,8 @@ urlpatterns = [
 
     # Dataset
     path('api/generate/', generate_dataset, name='generate-dataset'),
+
+    path('api/audit/ledger/', audit_ledger),
 
     # Health
     path('', health_check),

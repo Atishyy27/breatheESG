@@ -4,10 +4,10 @@ import json
 import hashlib
 import subprocess
 from datetime import timedelta
-
+from functools import wraps
 from django.http import HttpResponse
 from django.utils import timezone
-from django.db.models import Sum, Count, Q
+from django.db.models import Sum, Count, Q, Case, When, IntegerField
 from django.db.models.functions import TruncMonth
 from rest_framework import status
 from rest_framework.decorators import api_view
@@ -27,27 +27,48 @@ from .processors import execute_ingestion_pipeline
 def _get_analyst_email(request):
     return request.META.get('HTTP_X_ANALYST_EMAIL', 'analyst@breatheesg.com')
 
+def role_required(*allowed_roles):
+    def decorator(view_fn):
+        @wraps(view_fn)
+        def wrapped(request, *args, **kwargs):
+            role = request.META.get('HTTP_X_USER_ROLE', 'ANALYST').upper()
+            if role not in allowed_roles:
+                return Response(
+                    {'error': f'Access Denied: Role {role} cannot access this process mapping.'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            return view_fn(request, *args, **kwargs)
+        return wrapped
+    return decorator
 
 def _parse_file_to_rows(file_content: bytes, source_type: str) -> list:
     """
-    Converts raw file bytes to a list of row dicts.
-    CSV sources: SAP, UTILITY_BILL, UTILITY_METER
-    JSON source: TRAVEL
+    Converts raw file bytes to a list of row dicts with dynamic delimiter
+    sniffing and Excel formula cleanup for auditing fidelity.
     """
     if source_type == 'TRAVEL':
         decoded = file_content.decode('utf-8')
         data = json.loads(decoded)
         return data if isinstance(data, list) else [data]
 
-    # CSV sources — handle BOM from Excel exports
-    decoded = file_content.decode('utf-8-sig')
-    reader = csv.DictReader(io.StringIO(decoded))
+    # CSV sources — auto-detect delimiter between pipe and comma
+    text = file_content.decode('utf-8-sig')
+    sample = text[:1000]
+    delimiter = '|' if sample.count('|') > sample.count(',') else ','
+
+    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
     rows = []
     for row in reader:
-        # Strip whitespace from all keys and values
-        rows.append({k.strip(): v.strip() for k, v in row.items() if k})
+        cleaned = {}
+        for k, v in row.items():
+            if not k:
+                continue
+            key = k.strip()
+            # Strip Excel formula artifacts if present: ="value" -> value
+            val = str(v).strip().lstrip('=').strip('"').strip() if v else ''
+            cleaned[key] = val
+        rows.append(cleaned)
     return rows
-
 
 # ── Health check ─────────────────────────────────────────────────────────────
 
@@ -59,6 +80,7 @@ def health_check(request):
 # ── Upload pipeline ───────────────────────────────────────────────────────────
 
 @api_view(['POST'])
+@role_required('ANALYST', 'MANAGER')
 def upload_file_endpoint(request):
     file = request.FILES.get('file')
     source_type = request.data.get('source_type', '').strip()
@@ -142,11 +164,22 @@ def upload_file_endpoint(request):
         },
     }, status=status.HTTP_201_CREATED)
 
-
 @api_view(['GET'])
 def upload_list(request):
     uploads = RawUpload.objects.order_by('-uploaded_at')[:100]
     return Response(UploadSummarySerializer(uploads, many=True).data)
+
+@api_view(['GET'])
+def audit_ledger(request):
+    """Returns approved+locked records for the Audit page."""
+    activities = (
+        NormalizedActivity.objects
+        .filter(review_status='APPROVED')
+        .select_related('raw_record__upload')
+        .prefetch_related('raw_record__validation_issues')
+        .order_by('-reviewed_at')
+    )
+    return Response(QueueItemSerializer(activities, many=True).data)
 
 
 # ── Review queue ─────────────────────────────────────────────────────────────
@@ -158,10 +191,17 @@ def review_queue_list(request):
         .filter(review_status__in=['PENDING', 'SUSPICIOUS'])
         .select_related('raw_record__upload')
         .prefetch_related('raw_record__validation_issues')
-        .order_by('-created_at')
+        .order_by(
+            Case(
+                When(review_status='SUSPICIOUS', then=0),
+                When(review_status='PENDING', then=1),
+                default=2,
+                output_field=IntegerField()
+            ),
+            '-created_at'
+        )
     )
     return Response(QueueItemSerializer(activities, many=True).data)
-
 
 @api_view(['GET'])
 def review_queue_detail(request, pk):
@@ -222,6 +262,7 @@ def approve_activity(request, pk):
 
 
 @api_view(['POST'])
+@role_required('ANALYST', 'MANAGER')
 def reject_activity(request, pk):
     try:
         activity = NormalizedActivity.objects.get(pk=pk)
@@ -234,24 +275,17 @@ def reject_activity(request, pk):
             status=status.HTTP_409_CONFLICT,
         )
 
-    # Store as PENDING with a rejection note rather than a new status
-    # (model doesn't have REJECTED choice — keeping data clean)
     notes = (request.data.get('review_notes') or 'Rejected by analyst').strip()
-    activity.review_notes = f'[REJECTED] {notes}'
+    activity.review_notes = notes
+    activity.review_status = 'REJECTED'
     activity.reviewed_at = timezone.now()
     activity.reviewed_by_email = _get_analyst_email(request)
-    # Remove from active queue without altering status enum
-    activity.review_status = 'PENDING'
     activity.save(update_fields=['review_notes', 'reviewed_at', 'reviewed_by_email', 'review_status'])
-
-    # Hide from queue by marking raw_record
-    activity.raw_record.has_error = True
-    activity.raw_record.save(update_fields=['has_error'])
 
     return Response({'status': 'rejected', 'id': activity.id})
 
-
 @api_view(['POST'])
+@role_required('MANAGER','ANALYST')
 def batch_approve_activity(request):
     ids = request.data.get('activity_ids', [])
     if not ids:
@@ -702,27 +736,3 @@ def generate_dataset(request):
         return Response({'error': 'Generation timed out'}, status=500)
     except Exception as e:
         return Response({'error': str(e)[:500]}, status=500)
-
-def _parse_file_to_rows(file_content: bytes, source_type: str) -> list:
-    if source_type == 'TRAVEL':
-        data = json.loads(file_content.decode('utf-8'))
-        return data if isinstance(data, list) else [data]
-
-    # Detect delimiter — SAP files use pipe, utility uses comma
-    text = file_content.decode('utf-8-sig')
-    sample = text[:500]
-    delimiter = '|' if sample.count('|') > sample.count(',') else ','
-
-    reader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
-    rows = []
-    for row in reader:
-        cleaned = {}
-        for k, v in row.items():
-            if not k:
-                continue
-            key = k.strip()
-            # Strip Excel formula artifacts: ="01.01.2025" → 01.01.2025
-            val = v.strip().lstrip('=').strip('"').strip()
-            cleaned[key] = val
-        rows.append(cleaned)
-    return rows

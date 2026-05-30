@@ -1,20 +1,21 @@
 import { useReviewQueue } from '@/hooks/useReviewQueue'
 import { useDashboard } from '@/hooks/useDashboard'
+import { useQuery } from '@tanstack/react-query'
+import { apiClient } from '@/lib/api'
 import { FileSearch, CheckCircle2, Clock, AlertTriangle, Upload } from 'lucide-react'
 
 export function AuditPage() {
   const { data: queue } = useReviewQueue()
   const { data: dashboard } = useDashboard()
+  const { data: ledger = [] } = useQuery({
+    queryKey: ['audit-ledger'],
+    queryFn: () => apiClient.get('/audit/ledger/').then(r => r.data),
+    refetchInterval: 15000,
+  })
 
-  // Build audit events from existing data
-  const approvedRecords = (queue || [])
-    .filter(r => r.review_status === 'APPROVED')
-    .slice(0, 50)
-
-  const suspiciousRecords = (queue || [])
-    .filter(r => r.review_status === 'SUSPICIOUS')
-
-  const allRecords = (queue || []).slice(0, 100)
+  const approvedRecords = ledger.slice(0, 100)
+  const suspiciousRecords = (queue || []).filter(r => r.review_status === 'SUSPICIOUS')
+  const allRecords = [...approvedRecords, ...(queue || [])].slice(0, 100)
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">

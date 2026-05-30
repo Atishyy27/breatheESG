@@ -99,6 +99,9 @@ export function DashboardPage() {
         </p>
       </div>
 
+      {/* ── Pipeline Narrative ──────────────────────────────────── */}
+      {data.pipeline && <PipelineNarrative pipeline={data.pipeline} />}
+
       {/* ── KPI Row ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <KPICard
@@ -554,7 +557,37 @@ function ChartPlaceholder({ message }: { message: string }) {
   )
 }
 
-function PipelineFunnel({ pipeline }: { pipeline?: any }) {
+function PipelineNarrative({ pipeline }: { pipeline: any }) {
+  const steps = [
+    { label: 'Upload', value: pipeline.uploaded, color: '#6366f1' },
+    { label: 'Normalize', value: pipeline.normalized, color: '#3b82f6' },
+    { label: 'Review', value: pipeline.pending, color: '#f59e0b' },
+    { label: 'Approve', value: pipeline.approved, color: '#10b981' },
+  ]
+  return (
+    <div className="flex items-center gap-0 border border-border bg-card rounded-xl px-4 py-3 shadow-sm overflow-x-auto">
+      {steps.map((s, i) => (
+        <div key={s.label} className="flex items-center gap-0 shrink-0">
+          <div className="flex flex-col items-center px-4">
+            <span
+              className="text-lg font-bold tabular-nums"
+              style={{ color: s.color }}
+            >
+              {s.value ?? 0}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide mt-0.5">
+              {s.label}
+            </span>
+          </div>
+          {i < steps.length - 1 && (
+            <span className="text-muted-foreground text-lg mx-1 shrink-0">→</span>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+  function PipelineFunnel({ pipeline }: { pipeline?: any }) {
   if (!pipeline) return <ChartPlaceholder message="No pipeline data." />
   const stages = [
     { label: 'Uploaded', value: pipeline.uploaded, color: '#6366f1' },

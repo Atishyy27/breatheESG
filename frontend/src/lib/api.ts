@@ -13,6 +13,19 @@ export const apiClient = axios.create({
   },
 })
 
+apiClient.interceptors.request.use((config) => {
+  const role = localStorage.getItem('breathe_esg_role') || 'ANALYST';
+  const emailMap: Record<string, string> = {
+    ANALYST: 'analyst@breatheesg.com',
+    MANAGER: 'manager@breatheesg.com',
+    AUDITOR: 'auditor@breatheesg.com',
+    CFO: 'cfo@breatheesg.com',
+  };
+  config.headers['X-Analyst-Email'] = emailMap[role] ?? 'analyst@breatheesg.com';
+  config.headers['X-User-Role'] = role;
+  return config;
+});
+
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {

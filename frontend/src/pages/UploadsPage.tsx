@@ -138,14 +138,21 @@ export function UploadsPage() {
                       <td className="p-3 font-semibold text-foreground truncate max-w-[180px]">{log.filename}</td>
                       <td className="p-3 font-mono"><code>{log.source_type}</code></td>
                       <td className="p-3 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
-                          log.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 
-                          log.status === 'FAILED' ? 'bg-red-500/10 text-red-600 border-red-500/20' : 
-                          'bg-blue-500/10 text-blue-600 border-blue-500/20'
-                        }`}>
-                          {log.status === 'COMPLETED' ? <CheckCircle2 className="h-3 w-3" /> : log.status === 'FAILED' ? <AlertCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
-                          {log.status}
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide border ${
+                            log.status === 'COMPLETED' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 
+                            log.status === 'FAILED' ? 'bg-red-500/10 text-red-600 border-red-500/20' : 
+                            'bg-blue-500/10 text-blue-600 border-blue-500/20'
+                          }`}>
+                            {log.status === 'COMPLETED' ? <CheckCircle2 className="h-3 w-3" /> : log.status === 'FAILED' ? <AlertCircle className="h-3 w-3" /> : <Clock className="h-3 w-3" />}
+                            {log.status}
+                          </span>
+                          {log.status === 'FAILED' && log.processing_error && (
+                            <span className="text-[9px] text-red-500 max-w-[160px] text-center leading-tight" title={log.processing_error}>
+                              {log.processing_error.length > 80 ? log.processing_error.slice(0, 80) + '…' : log.processing_error}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="p-3 text-right text-muted-foreground tabular-nums">
                         <span className="text-emerald-600 font-medium">{log.normalized_rows}</span> / <span className="text-amber-500 font-medium">{log.suspicious_rows}</span> / <span className="text-red-600 font-medium">{log.error_rows}</span>

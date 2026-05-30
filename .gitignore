@@ -1,3 +1,7 @@
- backend/breathe/__pycache__/
+__pycache__/
+*.pyc
 db.sqlite3
-frontend/node_modules/
+node_modules/
+.env
+dist/
+build/

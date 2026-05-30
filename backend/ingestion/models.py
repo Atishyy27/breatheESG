@@ -54,7 +54,8 @@ class NormalizedActivity(models.Model):
     STATUS_CHOICES = [
         ('PENDING', 'Pending Review'),
         ('SUSPICIOUS', 'Flagged Anomaly'),
-        ('APPROVED', 'Approved')
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
     ]
     ANOMALY_CHOICES = [
         ('QUANTITY_SPIKE', 'Consumption spike >2.5x baseline'),

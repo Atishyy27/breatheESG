@@ -67,3 +67,4 @@ def generate_monthly_bills(anomaly_count=40, output_path='outputs/'):
     # Override some rows as ESTIMATED (already set in read_type)
     ExportUtils.export_csv(f"{output_path}/utility_bills.csv", rows)
     return rows
+    

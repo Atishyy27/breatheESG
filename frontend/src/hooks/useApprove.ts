@@ -23,6 +23,8 @@ export function useApprove() {
       toast.success('Record approved and locked for audit')
       queryClient.invalidateQueries({ queryKey: ['review-queue'] })
       queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] })
+      queryClient.invalidateQueries({ queryKey: ['dashboard-trends'] })
+      queryClient.invalidateQueries({ queryKey: ['audit-ledger'] })
     },
     onError: (err: any) => {
       toast.error('Approval failed', {

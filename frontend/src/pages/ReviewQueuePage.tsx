@@ -8,14 +8,17 @@ import { SkeletonLoader } from '@/components/shared/SkeletonLoader';
 import { getFacilityName } from '@/lib/constants';
 import { ShieldCheck, Download, Search, Filter } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRole } from '@/context/RoleContext';
 
 export function ReviewQueuePage() {
+  const { roleInfo } = useRole();
   const { data: queue, isLoading, refetch } = useReviewQueue();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
   const [selected, setSelected] = useState<number[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [isBatchProcessing, setIsBatchProcessing] = useState(false);
+  const [showBatchConfirm, setShowBatchConfirm] = useState(false);
 
   const filtered = (queue || []).filter((item: any) => {
     const s = search.toLowerCase();
@@ -26,8 +29,11 @@ export function ReviewQueuePage() {
 
   const handleBatch = async () => {
     if (!selected.length) return;
-    if (!window.confirm(`Approve ${selected.length} selected activities for audit lock?`)) return;
-    
+    setShowBatchConfirm(true);
+  };
+
+  const confirmBatch = async () => {
+    setShowBatchConfirm(false);
     setIsBatchProcessing(true);
     try {
       await api.batchApprove(selected);
@@ -58,7 +64,7 @@ export function ReviewQueuePage() {
           <p className="text-sm text-muted-foreground mt-1">Audit, override, and lock normalized carbon assets.</p>
         </div>
         <div className="flex gap-3">
-          {selected.length > 0 && (
+          {roleInfo.canApprove && selected.length > 0 && (
             <button 
               onClick={handleBatch} 
               disabled={isBatchProcessing}
@@ -105,14 +111,16 @@ export function ReviewQueuePage() {
           <table className="w-full text-sm text-left">
             <thead className="bg-muted/30 border-b border-border text-muted-foreground text-xs uppercase tracking-wider">
               <tr>
-                <th className="p-4 w-12">
-                  <input 
-                    type="checkbox" 
-                    className="rounded border-border" 
-                    checked={selected.length === filtered.length && filtered.length > 0} 
-                    onChange={() => setSelected(selected.length === filtered.length ? [] : filtered.map((i: any) => i.id))} 
-                  />
-                </th>
+                {roleInfo.canApprove && (
+                  <th className="p-4 w-12">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-border" 
+                      checked={selected.length === filtered.length && filtered.length > 0} 
+                      onChange={() => setSelected(selected.length === filtered.length ? [] : filtered.map((i: any) => i.id))} 
+                    />
+                  </th>
+                )}
                 <th className="p-4 font-semibold">Period</th>
                 <th className="p-4 font-semibold">Facility</th>
                 <th className="p-4 font-semibold">Activity Map</th>
@@ -129,14 +137,16 @@ export function ReviewQueuePage() {
                     row.review_status === 'SUSPICIOUS' ? 'bg-amber-500/5 hover:bg-amber-500/10' : 'hover:bg-muted/30'
                   }`}
                 >
-                  <td className="p-4" onClick={(e) => e.stopPropagation()}>
-                    <input 
-                      type="checkbox" 
-                      className="rounded border-border" 
-                      checked={selected.includes(row.id)} 
-                      onChange={() => setSelected(prev => prev.includes(row.id) ? prev.filter(id => id !== row.id) : [...prev, row.id])} 
-                    />
-                  </td>
+                  {roleInfo.canApprove && (
+                    <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-border" 
+                        checked={selected.includes(row.id)} 
+                        onChange={() => setSelected(prev => prev.includes(row.id) ? prev.filter(id => id !== row.id) : [...prev, row.id])} 
+                      />
+                    </td>
+                  )}
                   <td className="p-4 font-mono text-xs">{row.reporting_period}</td>
                   <td className="p-4">
                     <div className="font-semibold">{row.facility_code || 'UNMAPPED'}</div>
@@ -146,7 +156,8 @@ export function ReviewQueuePage() {
                   <td className="p-4 text-right font-mono font-bold tabular-nums">
                     {Number(row.co2e_kg).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})} kg
                   </td>
-                  <td className="p-4 flex gap-2 items-center">
+                  <td className="p-4">
+                    <div className="flex gap-2 items-center flex-wrap">
                     <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded border ${
                       row.review_status === 'SUSPICIOUS' 
                         ? 'bg-amber-100 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-400 dark:border-amber-900' 
@@ -155,11 +166,17 @@ export function ReviewQueuePage() {
                       {row.review_status}
                     </span>
                     <AnomalyTooltip code={row.anomaly_code || ''} details={row.anomaly_details} />
+                    {row.review_status === 'SUSPICIOUS' && row.anomaly_details && (
+                      <span className="text-[10px] text-amber-700 dark:text-amber-400 max-w-[180px] truncate" title={row.anomaly_details}>
+                        {row.anomaly_details.split('.')[0]}
+                      </span>
+                    )}
                     {row.inline_issues && row.inline_issues.length > 0 ? (
                       <span className="text-[10px] font-bold text-red-500 bg-red-500/10 px-2 py-0.5 rounded border border-red-500/20">
                         {row.inline_issues.length} ERR
                       </span>
                     ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -169,6 +186,32 @@ export function ReviewQueuePage() {
       )}
 
       {activeId && <DetailModal id={activeId} onClose={() => { setActiveId(null); refetch(); }} />}
+
+      {showBatchConfirm && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-card border border-border rounded-xl p-6 shadow-2xl max-w-sm w-full space-y-4">
+            <h3 className="font-bold text-sm">Confirm Batch Approval</h3>
+            <p className="text-sm text-muted-foreground">
+              Approve <span className="font-bold text-foreground">{selected.length}</span> selected{' '}
+              {selected.length === 1 ? 'activity' : 'activities'} and lock for audit? This cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowBatchConfirm(false)}
+                className="px-4 py-2 text-sm border border-border rounded-lg hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmBatch}
+                className="px-4 py-2 text-sm bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-colors"
+              >
+                Approve & Lock
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -7,35 +7,6 @@ from .models import RawRecord, NormalizedActivity, EmissionFactor, ValidationIss
 
 # ── Date parsing ──────────────────────────────────────────────────────────────
 
-# def parse_date(date_str):
-#     if not date_str:
-#         return None
-#     s=str(date_str).strip()
-
-
-#     # Excel weirdness:
-#     s=s.replace('"="','')
-#     s=s.replace('"','')
-#     s=s.strip("=")
-#     formats=[
-#         '%Y-%m-%d',
-#         '%d.%m.%Y',
-#         '%Y/%m/%d',
-#         '%m/%d/%Y',
-#         '%d/%m/%Y',
-#         '%d%m%Y',
-#         '%Y%m%d'
-#     ]
-#     for fmt in formats:
-#         try:
-#             return datetime.strptime(
-#                 s,
-#                 fmt
-#             ).date()
-#         except ValueError:
-#             pass
-#     return None
-
 def parse_date(date_str):
     s = str(date_str).strip()
     # Remove Excel formula wrapping: ="01.01.2025" or ="01012025"
@@ -169,6 +140,7 @@ def process_sap_line(record):
     ef = EmissionFactor.objects.filter(activity_type=act_type, unit=raw_unit).first()
     factor_val = ef.factor_kg_co2e if ef else Decimal('0.0')
     ef_src = ef.source if ef else 'Factor Database Missing'
+    no_factor = ef is None
 
     activity = NormalizedActivity.objects.create(
         raw_record=record,
@@ -186,9 +158,18 @@ def process_sap_line(record):
         source_metadata={
             'material': data.get('MATNR'), 'vendor': data.get('LIFNR'),
             'net_value': data.get('NETWR'), 'currency': data.get('WAERS'),
-        },
+        },   
     )
-    detect_anomalies(activity)
+    if no_factor and act_type == 'material_procurement':
+        activity.review_status = 'SUSPICIOUS'
+        activity.anomaly_code = 'MISSING_FACILITY'
+        activity.anomaly_details = (
+            f"No emission factor mapped for activity_type='{act_type}' unit='{raw_unit}'. "
+            f"CO₂e recorded as 0. Scope 3 purchased goods requires a spend-based or mass-based factor."
+        )
+        activity.save(update_fields=['review_status', 'anomaly_code', 'anomaly_details'])
+    else:
+        detect_anomalies(activity)
 
 
 # ── Utility bill processor ───────────────────────────────────────────────────
@@ -466,8 +447,21 @@ def execute_ingestion_pipeline(upload):
 
     if upload.source_type == 'UTILITY_METER':
         rows_list = [r.raw_data for r in records]
+        if not rows_list:
+            upload.status = 'FAILED'
+            upload.processing_error = 'Unsupported interval granularity: file contains no parseable rows.'
+            upload.save(update_fields=['status', 'processing_error'])
+            return
         process_smart_meter_hourly_batch(upload, rows_list)
         normalized = NormalizedActivity.objects.filter(raw_record__upload=upload).count()
+        if normalized == 0:
+            upload.status = 'FAILED'
+            upload.processing_error = (
+                'Unsupported interval granularity: no hourly intervals could be aggregated. '
+                'Verify timestamp format is YYYY-MM-DD HH:MM:SS and kwh_interval field is present.'
+            )
+            upload.save(update_fields=['status', 'processing_error'])
+            return
         upload.normalized_rows = normalized
         upload.status = 'COMPLETED'
         upload.save(update_fields=['normalized_rows', 'status'])

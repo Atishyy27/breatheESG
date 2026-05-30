@@ -3,9 +3,12 @@ import { api } from '@/lib/api';
 import { useApprove } from '@/hooks/useApprove';
 import { getFacilityName } from '@/lib/constants';
 import { X, CheckCircle2, AlertTriangle, Database } from 'lucide-react';
+import type { Activity } from '@/types';
+import { useRole } from '@/context/RoleContext';
 
 export function DetailModal({ id, onClose }: { id: number; onClose: () => void }) {
-  const [data, setData] = useState<any>(null);
+  const { roleInfo } = useRole();
+  const [data, setData] = useState<Activity | null>(null);
   const [notes, setNotes] = useState("");
   const [bypass, setBypass] = useState(false);
   const { mutate: approve, isPending } = useApprove();
@@ -102,19 +105,26 @@ export function DetailModal({ id, onClose }: { id: number; onClose: () => void }
               value={notes} onChange={(e) => setNotes(e.target.value)}
             />
             <div className="flex flex-col gap-2 justify-end w-48">
-              {hasErrors && (
+              {hasErrors && roleInfo.canApprove && (
                 <label className="flex items-center gap-2 text-[11px] text-red-600 font-semibold cursor-pointer select-none">
                   <input type="checkbox" className="rounded" checked={bypass} onChange={(e) => setBypass(e.target.checked)} />
                   Force Audit Override
                 </label>
               )}
-              <button 
-                onClick={() => approve({ id, bypass_validation: bypass, review_notes: notes }, { onSuccess: onClose })}
-                disabled={isPending || (hasErrors && (!bypass || !notes))}
-                className="w-full py-2.5 bg-primary text-primary-foreground text-sm font-bold rounded-lg disabled:opacity-50 transition-colors"
-              >
-                {isPending ? "Locking..." : "Approve Record"}
-              </button>
+              
+              {roleInfo.canApprove ? (
+                <button 
+                  onClick={() => approve({ id, bypass_validation: bypass, review_notes: notes }, { onSuccess: onClose })}
+                  disabled={isPending || (hasErrors && (!bypass || !notes))}
+                  className="w-full py-2.5 bg-primary text-primary-foreground text-sm font-bold rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  {isPending ? "Locking..." : "Approve Record"}
+                </button>
+              ) : (
+                <div className="text-xs text-muted-foreground text-center py-2 bg-muted/40 border border-border rounded-lg px-2 font-medium">
+                  {roleInfo.id === 'AUDITOR' ? '🔒 External Read-Only Audit Scope' : 'Insufficient Action Permissions'}
+                </div>
+              )}
             </div>
           </div>
           <div className="text-[10px] text-muted-foreground text-right font-mono">Shortcuts: Ctrl+Enter (Approve), Esc (Close)</div>
